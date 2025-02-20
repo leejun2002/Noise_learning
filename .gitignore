@@ -1,0 +1,14 @@
+/__pycache__/
+/Checkpoints/
+
+/data/batch_save/
+/data/predict/
+/data/predict_save/
+/data/test/
+/data/train_save/
+
+/identify/
+/Logs/
+/processing/
+/Result_save/
+
