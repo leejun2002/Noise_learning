@@ -18,14 +18,14 @@ class DefaultConfig(object):
     test_dir = './Result'
     # 데이터 출처 정의
     # Instrument = 'Hariba'
-    Instrument = 'test'
+    Instrument = 'IWSDG_coif4_6_epoch500'
     # 테스트할 모델 경로 (필요시 수정)
     # Hariba
     # test_model_dir = r'H:\Projects\Instrumental noise modeling\code\VA4\Checkpoints\Hariba\UNet_CA\batch_64'
     # Nanophoton
 
     # test_model_dir = r'H:\Projects\Instrumental noise modeling\code\VA4\Checkpoints\Nanophoton\UNet_CA\batch_64'
-    test_model_dir = r'/home/jyounglee/NL_real/Checkpoints/Nanophoton/UNet_CA/batch_64'
+    test_model_dir = r'/home/jyounglee/NL_real/Checkpoints/IWSDG_coif4_6_epoch500/UNet_CA6/batch_64'
 
     # 학습 데이터 저장 경로
     # train_data_root = r'H:\PAPER\paper writing\Noise learning\Simulate datasets'
@@ -42,18 +42,18 @@ class DefaultConfig(object):
     # predict_root = r'H:\PAPER\paper writing\Noise learning\수정Revision\광학공간분해능\gaoyun\nanophoton\test'
     predict_root = r'/home/jyounglee/NL_real/data/predict'
     predict_save_root = r'/home/jyounglee/NL_real/data/predict_save'
-    raw_predict_base = r'/home/jyounglee/NL_real/data/given_data/3layer_on_siwafer'
-    # raw_predict_base = r'/home/jyounglee/NL_real/data/given_data/noise_3siwafer'
 
+    # batch_predict 데이터 저장 경로
+    raw_predict_base = r'/home/jyounglee/NL_real/data/given_data/3layer_on_siwafer'
     batch_predict_root = r'/home/jyounglee/NL_real/data/batch_predict'
     batch_save_root = r'/home/jyounglee/NL_real/Result'
     rank_bg = 1
 
     batch_size = 64  # 배치 크기
     print_freq = 50 # N 배치마다 정보 출력
-    max_epoch = 1000
+    max_epoch = 2000
     lr = 0.001  # 초기 학습률
-    lr_decay = 0.9  # 검증 손실 증가 시, lr = lr * lr_decay
+    lr_decay = 0.6  # 검증 손실 증가 시, lr = lr * lr_decay
     fade_factor = 0  # 0 : 배경 완전 제거 / 1 : 배경 제거 X
     wavelet_model = 'coif4'
     wavelet_level = 6
@@ -69,12 +69,19 @@ class DefaultConfig(object):
     # is_predicting = False
     # is_batch_predicting = False
 
-    # batch_predict
+    # predict
     is_training = False
     is_pretrain = True
     is_testing = False
-    is_predicting = False
-    is_batch_predicting = True
+    is_predicting = True
+    is_batch_predicting = False
+
+    # batch_predict
+    # is_training = False
+    # is_pretrain = True
+    # is_testing = False
+    # is_predicting = False
+    # is_batch_predicting = True
 
     # GPU 사용 여부
     use_gpu = True
@@ -82,7 +89,7 @@ class DefaultConfig(object):
     # Hariba
     # Nanophoton
     # global_step = 850000
-    global_step = 562800
+    global_step = 16000
     # 검증 데이터셋 비율 정의
     valid_ratio = 20
     # 입력 데이터 이름 정의

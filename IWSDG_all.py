@@ -355,6 +355,166 @@ def train(config):
     print(f"[train] Finished. Best valid loss = {best_valid_loss:.4f}", flush=True)
 
 ###############################################################################
+# predict
+###############################################################################
+
+def predict(config, row_points=1600, zero_cut=0.0):
+    """
+    batch_predict 함수를 참고하여, SVD를 생략하고 Wavelet만 적용한 뒤
+    (global_mean, global_std)로 정규화 → 모델 노이즈 예측 → raw - noise 로
+    denoised를 구하는 파이프라인을 '단일 txt 파일' 단위로 처리하는 함수.
+
+    1) config.predict_root 폴더 내의 모든 .txt 파일 찾기
+    2) 각 파일에 대하여:
+       - txt 로드 + length_interpolation
+       - Wavelet Baseline 제거
+       - DCT & (global_mean, global_std) 정규화
+       - 모델 추론(노이즈)
+       - 최종 denoised = raw - predicted_noise
+       - (옵션) 시각화(2x2 subplot 등 batch_predict와 비슷하게)
+       - .mat 파일로 결과 저장
+    """
+
+    print("[predict] Starting single-file prediction pipeline (Wavelet only, no SVD)...", flush=True)
+
+    # ------------------------------------------------
+    # 1) predict_root 폴더 내 모든 .txt 파일 찾기
+    # ------------------------------------------------
+    txt_files = sorted(glob.glob(os.path.join(config.predict_root, "*.txt")))
+    if not txt_files:
+        print(f"[predict] '{config.predict_root}' 폴더에 .txt 파일이 없습니다.")
+        return
+
+    # ------------------------------------------------
+    # 2) 학습 시점 noise mat (noisE_{script_name}.mat)에서 global_mean, global_std 로드
+    # ------------------------------------------------
+    script_name = os.path.splitext(os.path.basename(sys.argv[0]))[0]
+    train_noise_mat = os.path.join(config.train_data_root, f"noisE_{script_name}.mat")
+    if not os.path.exists(train_noise_mat):
+        print(f"[predict] '{train_noise_mat}' 파일이 존재하지 않습니다.")
+        return
+
+    train_dict = sio.loadmat(train_noise_mat, struct_as_record=False, squeeze_me=True)
+    if 'global_mean' not in train_dict or 'global_std' not in train_dict:
+        print("[predict] 'global_mean' 혹은 'global_std'를 찾을 수 없습니다.")
+        return
+
+    global_mean = float(train_dict['global_mean'])
+    global_std  = float(train_dict['global_std'])
+    EPS = 1e-6
+
+    print(f"[predict] Loaded global_mean={global_mean:.6f}, global_std={global_std:.6f}")
+
+    # ------------------------------------------------
+    # 3) 모델 로드 (batch_predict와 동일하게)
+    # ------------------------------------------------
+    model_file = os.path.join(config.test_model_dir, f"{config.global_step}.pt")
+    if not os.path.exists(model_file):
+        print(f"[predict] 모델 파일을 찾을 수 없습니다: {model_file}")
+        return
+
+    state = torch.load(model_file, map_location='cpu')
+    model = eval(f"{config.model_name}(1,1)")
+    # DataParallel 저장 고려
+    model.load_state_dict({k.replace('module.', ''): v for k, v in state['model'].items()})
+    model.eval()
+    if torch.cuda.is_available():
+        model = model.cuda()
+
+    print(f"[predict] Loaded model from {model_file}")
+
+    # ------------------------------------------------
+    # 4) txt 파일마다 처리
+    # ------------------------------------------------
+    for txt_file in txt_files:
+        print(f"\n=== Processing {txt_file} ===")
+
+        # (4-1) txt 로드 + interpolation
+        spec = length_interpolation(txt_file, row_points=row_points, zero_cut=zero_cut)
+        if spec is None:
+            print(f"[predict] 보간 실패 or 데이터가 유효하지 않습니다: {txt_file}")
+            continue
+
+        # (4-2) Wavelet Baseline Correction
+        # batch_predict처럼 orig - baseline
+        baseline = wavelet_baseline(spec, wavelet=config.wavelet_model, level=config.wavelet_level)
+        wavelet_corrected = spec - baseline
+
+        # (4-3) DCT & Normalization
+        row_dct = dct(wavelet_corrected, type=2, norm='ortho')
+        row_norm = (row_dct - global_mean) / (global_std + EPS)
+
+        # (4-4) 모델 추론 -> predicted_noise (DCT domain)
+        inp_t = torch.from_numpy(row_norm.reshape(1,1,-1).astype(np.float32))
+        if torch.cuda.is_available():
+            inp_t = inp_t.cuda()
+        with torch.no_grad():
+            pred_out = model(inp_t).cpu().numpy().reshape(-1)
+
+        # 역정규화 + IDCT
+        pred_trans = pred_out * (global_std + EPS) + global_mean
+        predicted_noise = idct(pred_trans, type=2, norm='ortho')
+
+        # (4-5) 최종 denoised = raw - noise
+        denoised = spec - predicted_noise
+
+        # ------------------------------------------------
+        # 5) 시각화: batch_predict와 비슷한 2x2 subplot
+        # ------------------------------------------------
+        fig, axs = plt.subplots(2, 2, figsize=(14, 9))
+        axs = axs.flatten()
+
+        # subplot(0): 원본 / wavelet
+        axs[0].plot(spec, label="Original (Interpolated)", color='blue')
+        axs[0].plot(baseline, label="Wavelet Baseline", color='orange')
+        axs[0].plot(wavelet_corrected, label="After Wavelet", color='green')
+        axs[0].set_title("Wavelet Baseline Correction")
+        axs[0].set_xlabel("Index"); axs[0].set_ylabel("Intensity")
+        axs[0].legend()
+
+        # subplot(1): DCT & Normalized
+        axs[1].plot(row_dct, label="DCT", color='royalblue')
+        axs[1].plot(row_norm, label="Normalized DCT", color='red')
+        axs[1].set_title("DCT & Normalized")
+        axs[1].set_xlabel("Coeff Index"); axs[1].set_ylabel("Value")
+        axs[1].legend()
+
+        # subplot(2): Predicted Noise
+        axs[2].plot(predicted_noise, label="Predicted Noise", color='purple')
+        axs[2].set_title("Predicted Noise (Time Domain)")
+        axs[2].set_xlabel("Index"); axs[2].set_ylabel("Intensity")
+        axs[2].legend()
+
+        # subplot(3): Raw vs Noise vs Denoised
+        axs[3].plot(spec, label="Raw", color='cyan')
+        axs[3].plot(predicted_noise, label="Pred Noise", color='goldenrod')
+        axs[3].plot(denoised, label="Denoised", color='magenta')
+        axs[3].set_title("Comparison (Raw / Noise / Denoised)")
+        axs[3].set_xlabel("Index"); axs[3].set_ylabel("Intensity")
+        axs[3].legend()
+
+        plt.suptitle(f"Predict for: {os.path.basename(txt_file)}", fontsize=14)
+        plt.tight_layout()
+        plt.show()
+
+        # ------------------------------------------------
+        # 6) .mat 파일로 저장
+        # ------------------------------------------------
+        fname_no_ext = os.path.splitext(os.path.basename(txt_file))[0]
+        out_mat_path = os.path.join(config.predict_save_root, f"predict_{fname_no_ext}.mat")
+
+        out_dict = {
+            "original_interpolated": spec,
+            "wavelet_corrected": wavelet_corrected,
+            "predicted_noise": predicted_noise,
+            "denoised": denoised
+        }
+        sio.savemat(out_mat_path, out_dict, do_compression=True)
+        print(f"[predict] Saved => {out_mat_path}")
+
+    print(f"[predict] Finished all. (Total {len(txt_files)} files)")
+
+###############################################################################
 # batch_predict (using global helper functions)
 ###############################################################################
 def batch_predict(config):
@@ -577,6 +737,8 @@ def main(config):
     check_dir(config)
     if config.is_training:
         train(config)
+    if config.is_predicting:
+        predict(config)
     if config.is_batch_predicting:
         batch_predict(config)
 
