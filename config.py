@@ -70,18 +70,18 @@ class DefaultConfig(object):
     # is_batch_predicting = False
 
     # predict
-    is_training = False
-    is_pretrain = True
-    is_testing = False
-    is_predicting = True
-    is_batch_predicting = False
-
-    # batch_predict
     # is_training = False
     # is_pretrain = True
     # is_testing = False
-    # is_predicting = False
-    # is_batch_predicting = True
+    # is_predicting = True
+    # is_batch_predicting = False
+
+    # batch_predict
+    is_training = False
+    is_pretrain = True
+    is_testing = False
+    is_predicting = False
+    is_batch_predicting = True
 
     # GPU 사용 여부
     use_gpu = True
